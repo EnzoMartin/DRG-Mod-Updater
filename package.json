@@ -1,0 +1,30 @@
+{
+  "name": "drg-mod-updater",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "scripts": {
+    "dev": "node start.mjs",
+    "test": "nyc mocha",
+    "lint": "eslint . --ext js --quiet",
+    "lint:fix": "eslint . --ext js --fix --quiet",
+    "test:ci": "nyc mocha -R mocha-junit-reporter && nyc report",
+    "test:unit": "nyc mocha"
+  },
+  "dependencies": {
+    "cli-progress": "^3.9.0",
+    "got": "^12.0.0-beta.4"
+  },
+  "devDependencies": {
+    "chai": "^4.3.4",
+    "enzo-codestyle": "^6.4.0",
+    "eslint": "^7.27.0",
+    "mocha": "^9.0.3",
+    "nodemon": "^2.0.7",
+    "nyc": "^15.1.0",
+    "pino-pretty": "^5.0.1",
+    "sinon": "^11.1.1"
+  }
+}
