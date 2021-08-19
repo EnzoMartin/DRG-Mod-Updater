@@ -12,10 +12,12 @@ const modRegistry = 'https://raw.githubusercontent.com/ArcticEcho/DRG-Mods/main/
 const pakPath = 'FSD\\Content\\Paks';
 let modPath;
 
+// Grab the dir from command line
 const cliArg = process.argv.find((val) => {
   return val.startsWith('dir=');
 });
 
+// Verify the path provided exists, append the Pak dir if not provided
 if(cliArg){
   try {
     const pathArg = cliArg.replace('dir=', '');
@@ -30,6 +32,11 @@ if(cliArg){
   throw new Error('Please provide the installation directory path for Deep Rock Galactic');
 }
 
+/**
+ * Fetches the JSON file that represents the Mod registry from the GitHub repo
+ * @param {Object} startBar
+ * @return {Promise<unknown>}
+ */
 async function fetchRegistry(startBar){
   startBar.increment(1);
   const registry = await got(modRegistry).json();
@@ -37,6 +44,11 @@ async function fetchRegistry(startBar){
   return registry;
 }
 
+/**
+ * Parse and read the community Mod Pak files in the specified directory
+ * @param {Object} startBar
+ * @return {Promise<{names: *[], versions: {}}>}
+ */
 async function getInstalledMods(startBar){
   startBar.increment(1);
   const files = await readdir(modPath, { encoding: 'utf8' });
@@ -51,6 +63,7 @@ async function getInstalledMods(startBar){
       const version = itemSplit[1].replace('_P.pak','').split('V')[1] || '1';
 
       mods.names.push(name.trim());
+      // Save the version separately to compare with registry later
       mods.versions[name] = version.trim()
     }
     return mods;
@@ -60,22 +73,42 @@ async function getInstalledMods(startBar){
   return installedMods;
 }
 
+/**
+ * Filter the Mod registry with the locally installed Mod names
+ * @param {Array} remoteRegistryArray
+ * @param {Array} installedMods
+ * @return {Array}
+ */
 function findMatchingMods(remoteRegistryArray, installedMods){
   return remoteRegistryArray.filter((item) => {
     return installedMods.names.indexOf(item.DisplayName) !== -1;
   });
 }
 
+/**
+ * Compare the installed version of Mods to the version available in the Mod registry
+ * @param {Array} matchingMods
+ * @param {Object} installedMods
+ * @return {Array}
+ */
 function checkOutdatedMods(matchingMods, installedMods){
   return matchingMods.filter((item) => {
     return installedMods.versions[item.DisplayName] !== item.Version;
   },[]);
 }
 
+/**
+ * Download and save the updated mod files to the provided DRG Pak directory, also updates the progress bars
+ * @param {Object} item
+ * @param {Object} fileDownloadBars
+ * @param {Object} totalDownloadsBar
+ * @return {Promise<unknown>}
+ */
 async function downloadFile(item, fileDownloadBars, totalDownloadsBar){
   const url = item.DownloadUrl;
-  const fileName = `${item.DisplayName} - V${item.Version} _P.pak`;
+  const fileName = `${item.DisplayName} - V${item.Version} _P.pak`; // Format: Name - V0 _P.pak
 
+  // Check the total size of the file to provide accurate progress
   const {headers} = await got.head(url);
   const contentLength = headers['content-length'];
   const progressBar = fileDownloadBars.create(contentLength, 0);
@@ -84,6 +117,7 @@ async function downloadFile(item, fileDownloadBars, totalDownloadsBar){
   const downloadStream = got.stream(url);
   const fileWriterStream = createWriteStream(path.join(modPath,fileName));
 
+  // Bind the progress events to the progress bar
   downloadStream.on('downloadProgress', (stats) => {
     progressBar.update(stats.transferred, {filename: fileName});
   });
@@ -91,23 +125,35 @@ async function downloadFile(item, fileDownloadBars, totalDownloadsBar){
   return new Promise((resolve, reject) => {
     pipeline(downloadStream, fileWriterStream)
       .then(() => {
+        // File downloaded
         progressBar.setTotal(contentLength);
+        progressBar.stop();
         totalDownloadsBar.increment(1);
         resolve();
       })
       .catch((err) => {
+        // File failed
+        progressBar.stop();
         console.error(`Download failed for ${fileName}`, err);
         reject(err);
       });
   });
 }
 
+/**
+ * Loop through the outdated mods that need to be downloaded and trigger the download process
+ * @param {Array} outdatedMods
+ * @param {Object} startBar
+ * @return {Promise<unknown[]>}
+ */
 function downloadOutdatedMods(outdatedMods, startBar){
+  // Single bar for total downloads that need to be done
   const totalDownloadsBar = new cliProgress.SingleBar({
     format: '{bar} {percentage}% | Mods updated: {value}/{total}'
   }, cliProgress.Presets.shades_grey);
   totalDownloadsBar.start(outdatedMods.length, 0);
 
+  // Multi-bar for each individual file downloads
   const fileDownloadBars = new cliProgress.MultiBar({
     format: '{bar} {percentage}% | ETA: {eta}s | {value}/{total} | Mod: {filename}'
   }, cliProgress.Presets.shades_classic);
@@ -117,7 +163,7 @@ function downloadOutdatedMods(outdatedMods, startBar){
     promises.push(downloadFile(item, fileDownloadBars, totalDownloadsBar));
   });
 
-  Promise.all(promises).then(() => {
+  return Promise.all(promises).then(() => {
     setTimeout(() => {
       totalDownloadsBar.stop();
       finished(startBar);
@@ -129,6 +175,10 @@ function downloadOutdatedMods(outdatedMods, startBar){
   })
 }
 
+/**
+ * All mods have been updated, close down the process
+ * @param {Object} startBar
+ */
 function finished(startBar){
   startBar.increment(1);
   startBar.stop();
@@ -138,13 +188,16 @@ function finished(startBar){
   }, 2500);
 }
 
-// Begin
+/**
+ * Main function holding the logic flow
+ * @return {Promise<void>}
+ */
 async function checkMods() {
+  // Main process bar for all steps needed to be performed
   const startBar = new cliProgress.SingleBar({
     format: '{bar} {percentage}% | Main Process - Step {value}/{total}'
   }, cliProgress.Presets.shades_classic);
   startBar.start(5, 0);
-
 
   await Promise.all([
     fetchRegistry(startBar),
@@ -153,6 +206,7 @@ async function checkMods() {
     const remoteRegistry = res[0];
     const installedMods = res[1];
 
+    // Re-create registry as an array of objects
     const remoteRegistryArray = []
     for (const slug in remoteRegistry) {
       const item = remoteRegistry[slug];
@@ -163,6 +217,7 @@ async function checkMods() {
       });
     }
 
+    // All items (registry, local files) are sorted alphabetically by their Display Name
     remoteRegistryArray.sort((a, b) => {
       return a.DisplayName.localeCompare(b.DisplayName);
     })
@@ -171,6 +226,7 @@ async function checkMods() {
 
     const outdatedMods = checkOutdatedMods(matchingMods, installedMods);
 
+    // Download updated mods if any are found
     if (outdatedMods.length) {
       downloadOutdatedMods(outdatedMods, startBar);
     } else {
@@ -182,4 +238,5 @@ async function checkMods() {
   });
 }
 
+// Begins the process
 checkMods();
