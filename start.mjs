@@ -72,13 +72,13 @@ function checkOutdatedMods(matchingMods, installedMods){
   },[]);
 }
 
-async function downloadFile(item, fileDownloadBars, totalDownloadsBar, progressBar){
+async function downloadFile(item, fileDownloadBars, totalDownloadsBar){
   const url = item.DownloadUrl;
   const fileName = `${item.DisplayName} - V${item.Version} _P.pak`;
 
   const {headers} = await got.head(url);
   const contentLength = headers['content-length'];
-  //const progressBar = fileDownloadBars.create(contentLength, 0);
+  const progressBar = fileDownloadBars.create(contentLength, 0);
   progressBar.update(null, {total: contentLength})
 
   const downloadStream = got.stream(url);
@@ -91,6 +91,7 @@ async function downloadFile(item, fileDownloadBars, totalDownloadsBar, progressB
   return new Promise((resolve, reject) => {
     pipeline(downloadStream, fileWriterStream)
       .then(() => {
+        progressBar.setTotal(contentLength);
         totalDownloadsBar.increment(1);
         resolve();
       })
@@ -102,20 +103,25 @@ async function downloadFile(item, fileDownloadBars, totalDownloadsBar, progressB
 }
 
 function downloadOutdatedMods(outdatedMods, startBar){
-  const totalDownloadsBar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic);
+  const totalDownloadsBar = new cliProgress.SingleBar({
+    format: '{bar} {percentage}% | Mods updated: {value}/{total}'
+  }, cliProgress.Presets.shades_grey);
   totalDownloadsBar.start(outdatedMods.length, 0);
 
-  const fileDownloadBars = new cliProgress.MultiBar({}, cliProgress.Presets.shades_classic);
+  const fileDownloadBars = new cliProgress.MultiBar({
+    format: '{bar} {percentage}% | ETA: {eta}s | {value}/{total} | Mod: {filename}'
+  }, cliProgress.Presets.shades_classic);
 
   const promises = [];
   outdatedMods.forEach((item) => {
-    const progressBar = fileDownloadBars.create(1, 0);
-    promises.push(downloadFile(item, fileDownloadBars, totalDownloadsBar, progressBar));
+    promises.push(downloadFile(item, fileDownloadBars, totalDownloadsBar));
   });
 
   Promise.all(promises).then(() => {
-    totalDownloadsBar.stop();
-    finished(startBar);
+    setTimeout(() => {
+      totalDownloadsBar.stop();
+      finished(startBar);
+    }, 1000); // TODO: Fix the odd race condition with text display, doesn't impact the download itself
   }).catch((err) => {
     totalDownloadsBar.stop();
     console.error('Failed to download files', err);
@@ -126,12 +132,17 @@ function downloadOutdatedMods(outdatedMods, startBar){
 function finished(startBar){
   startBar.increment(1);
   startBar.stop();
-  console.log('Finished updating Mods');
+  setTimeout(() => {
+    console.log('Finished updating Mods');
+    process.exit(0);
+  }, 2500);
 }
 
 // Begin
 async function checkMods() {
-  const startBar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic);
+  const startBar = new cliProgress.SingleBar({
+    format: '{bar} {percentage}% | Main Process - Step {value}/{total}'
+  }, cliProgress.Presets.shades_classic);
   startBar.start(5, 0);
 
 
